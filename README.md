@@ -4,9 +4,10 @@ A terminal-based ascii art drawing program.
 
 ## Todos
 
-* restore terminal settings properly after exit
+* demo to Marty
 * show last char in drag mode
 * loading an existing file
 * be able to output to different formats, including python strings, and perhaps HTML
-* trim whitespace then appropriate
+* trim whitespace on save
 * colors (done)
+* restore terminal settings properly after exit (done)
