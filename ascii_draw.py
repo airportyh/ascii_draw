@@ -78,14 +78,17 @@ def display_filename(filename):
     
     print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30m' + filename + '\x1B[0m')
     
-def display_status(filename, drag_mode, color):
+def display_status(filename, drag_char, color):
     tsize = os.get_terminal_size()
     filename = filename or "[Untitled]"
-    line = filename
-    if drag_mode:
-        line += "  <drag mode>"
-    line += "\x1B[0m color = \x1B[%dm█" % color
-    print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30m' + line + '\x1B[0m')
+    line = '\x1B[0K\x1B[37mFile=' + filename
+    if drag_char:
+        line += " drag=%s" % drag_char
+    else:
+        line += " drag=Off"
+    line += "\x1B[0m color=\x1B[%dm█" % color
+    line += "\x1B[0m"
+    print_at(Position(1, tsize.lines), line)
     
 def get_canvas_size():
     tsize = os.get_terminal_size()
@@ -103,73 +106,61 @@ def draw(cursor, color, buffer, data):
 def save_file(filename, cursor, buffer):
     tsize = os.get_terminal_size()
     if filename is None:
-        line = "Save to file: "
-        print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30m' + line)
-        sys.stdout.flush()
-        new_filename = ''
-        while True:
-            data = get_input()
-            if data == '\n' or data == '\r':
-                break
-            elif data == '\x7f':
-                new_filename = new_filename[:-1]
-                print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30m' + line + new_filename)
-                sys.stdout.flush()
-            else:
-                new_filename += data
-                print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30m' + line + new_filename)
-                sys.stdout.flush()
-        filename = new_filename
+        filename = prompt_input("Save to file: ")
         
     file = open(filename, 'w')
     file.write(buffer.serialize() + '\x1B[0m\n')
     file.close()
     print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30mWrote ' + filename + '.\x1B[0m')
     sleep(0.5)
-    
+    return filename
 
 def open_file(cursor, buffer):
     tsize = os.get_terminal_size()
-    line = "Open file: "
-    print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30m' + line)
-    sys.stdout.flush()
-    filename = ''
-    while True:
-        data = get_input()
-        if data == '\n' or data == '\r':
-            break
-        elif data == '\x7f':
-            filename = filename[:-1]
-            print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30m' + line + filename)
-            sys.stdout.flush()
-        else:
-            filename += data
-            print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30m' + line + filename)
-            sys.stdout.flush()
-    
+    filename = prompt_input("Open file: ")
     file = open(filename, 'r')
     content = file.read()
     file.close()
     buffer.deserialize(content, tsize)
     print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30mLoaded ' + filename + '.\x1B[0m')
     sleep(0.5)
+    return filename
+
+def prompt_input(prompt):
+    tsize = os.get_terminal_size()
+    print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30m' + prompt)
+    sys.stdout.flush()
+    text = ''
+    while True:
+        data = get_input()
+        if data == '\n' or data == '\r':
+            break
+        elif data == '\x7f':
+            text = text[:-1]
+            print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30m' + prompt + text)
+            sys.stdout.flush()
+        else:
+            text += data
+            print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30m' + prompt + text)
+            sys.stdout.flush()
+    return text
 
 def main():
     log_file = open("log.txt", "w")
     log_file.write("start")
+    last_char = None
     color_idx = 0
     color = colors[color_idx]
     buffer = AsciiBuffer()
     filename = None
-    drag_mode = False
-    last_char = None
+    drag_char = None
     tsize = os.get_terminal_size()
     cursor = Position(x = tsize.columns // 2, y = tsize.lines // 2)
     old_settings = termios.tcgetattr(sys.stdin.fileno())
     tty.setraw(sys.stdin.fileno())
     make_stdin_non_blocking()
     clear_screen()
-    display_status(filename, drag_mode, color)
+    display_status(filename, drag_char, color)
     goto(cursor)
     
     try:
@@ -177,57 +168,60 @@ def main():
             data = get_input()
             log_file.write("Input: (" + repr(data) + ")\n")
             log_file.flush()
-            if data == 'q':
+            if data == '\x1b': # ESC to quit
                 break
-            elif data == '\r':
-                drag_mode = not drag_mode
-                display_status(filename, drag_mode, color)
+            elif data == ' ': # SPACE to toggle drag mode
+                if drag_char:
+                    drag_char = None
+                else:
+                    drag_char = last_char
+                display_status(filename, drag_char, color)
                 goto(cursor)
-            elif data == '\x03':
+            elif data == '\r': # ENTER to change colors
                 color_idx += 1
                 if color_idx >= len(colors):
                     color_idx = 0
                 color = colors[color_idx]
-                display_status(filename, drag_mode, color)
+                display_status(filename, drag_char, color)
                 goto(cursor)
             elif is_up_arrow(data):
                 cursor.y -= 1
                 if cursor.y < 1:
                     cursor.y = 1
                 goto(cursor)
-                if drag_mode and last_char:
-                    draw(cursor, color, buffer, last_char)
+                if drag_char:
+                    draw(cursor, color, buffer, drag_char)
             elif is_down_arrow(data):
                 cursor.y += 1
                 w, h = get_canvas_size()
                 if cursor.y > h:
                     cursor.y = h
                 goto(cursor)
-                if drag_mode and last_char:
-                    draw(cursor, color, buffer, last_char)
+                if drag_char:
+                    draw(cursor, color, buffer, drag_char)
             elif is_left_arrow(data):
                 cursor.x -= 1
                 if cursor.x < 1:
                     cursor.x = 1
                 goto(cursor)
-                if drag_mode and last_char:
-                    draw(cursor, color, buffer, last_char)
+                if drag_char:
+                    draw(cursor, color, buffer, drag_char)
             elif is_right_arrow(data):
                 cursor.x += 1
                 w, h = get_canvas_size()
                 if cursor.x > w:
                     cursor.x = w
                 goto(cursor)
-                if drag_mode and last_char:
-                    draw(cursor, color, buffer, last_char)
-            elif data == '\x13': # Ctrl-S
-                save_file(filename, cursor, buffer)
-                display_status(filename, drag_mode, color)
+                if drag_char:
+                    draw(cursor, color, buffer, drag_char)
+            elif data == '\x13': # Ctrl-S to save
+                filename = save_file(filename, cursor, buffer)
+                display_status(filename, drag_char, color)
                 goto(cursor)
-            elif data == '\x0f': # Ctrl-O
-                open_file(cursor, buffer)
+            elif data == '\x0f': # Ctrl-O to open
+                filename = open_file(cursor, buffer)
                 clear_screen()
-                display_status(filename, drag_mode, color)
+                display_status(filename, drag_char, color)
                 for i, line in enumerate(buffer.data):
                     for j, chr in enumerate(line):
                         if chr != ' ':
@@ -235,7 +229,9 @@ def main():
                             print(chr, end = '')
                             sys.stdout.flush()
                 goto(cursor)
-            else:
+            elif data == '\x7f': # DELETE
+                draw(cursor, color, buffer, ' ')
+            else:                # draw a character
                 last_char = data
                 draw(cursor, color, buffer, data)
                 

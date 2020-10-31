@@ -31,13 +31,17 @@ class AsciiBuffer(object):
             try:
                 idx = next(iter)
             except StopIteration:
-                return 0
-            if idx is None:
                 return i
+            if i is None and idx is None:
+                return None
+            elif idx is None:
+                return i
+            elif i is None:
+                return idx
             else:
-                return max(i, idx)
+                return min(i, idx)
         
-        first_non_space_idx = functools.reduce(reducer, lines, 0)
+        first_non_space_idx = functools.reduce(reducer, lines, None)
         #print("lines", lines, "first_non_space_idx", first_non_space_idx)
         return "\n".join(
             map(lambda row: "".join(row[first_non_space_idx:]), lines)
