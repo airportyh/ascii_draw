@@ -100,7 +100,7 @@ def draw(cursor, color, buffer, data):
     buffer.set(cursor.x, cursor.y, data)
     goto(cursor)
 
-def save_file(filename, cursor, buffer, drag_mode, color):
+def save_file(filename, cursor, buffer):
     tsize = os.get_terminal_size()
     if filename is None:
         line = "Save to file: "
@@ -122,12 +122,37 @@ def save_file(filename, cursor, buffer, drag_mode, color):
         filename = new_filename
         
     file = open(filename, 'w')
-    file.write(buffer.serialize() + '\x1B[0m')
+    file.write(buffer.serialize() + '\x1B[0m\n')
     file.close()
     print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30mWrote ' + filename + '.\x1B[0m')
     sleep(0.5)
-    display_status(filename, drag_mode, color)
-    goto(cursor)
+    
+
+def open_file(cursor, buffer):
+    tsize = os.get_terminal_size()
+    line = "Open file: "
+    print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30m' + line)
+    sys.stdout.flush()
+    filename = ''
+    while True:
+        data = get_input()
+        if data == '\n' or data == '\r':
+            break
+        elif data == '\x7f':
+            filename = filename[:-1]
+            print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30m' + line + filename)
+            sys.stdout.flush()
+        else:
+            filename += data
+            print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30m' + line + filename)
+            sys.stdout.flush()
+    
+    file = open(filename, 'r')
+    content = file.read()
+    file.close()
+    buffer.deserialize(content, tsize)
+    print_at(Position(1, tsize.lines), '\x1B[0K\x1B[47m\x1B[30mLoaded ' + filename + '.\x1B[0m')
+    sleep(0.5)
 
 def main():
     log_file = open("log.txt", "w")
@@ -196,7 +221,20 @@ def main():
                 if drag_mode and last_char:
                     draw(cursor, color, buffer, last_char)
             elif data == '\x13': # Ctrl-S
-                save_file(filename, cursor, buffer, drag_mode, color)
+                save_file(filename, cursor, buffer)
+                display_status(filename, drag_mode, color)
+                goto(cursor)
+            elif data == '\x0f': # Ctrl-O
+                open_file(cursor, buffer)
+                clear_screen()
+                display_status(filename, drag_mode, color)
+                for i, line in enumerate(buffer.data):
+                    for j, chr in enumerate(line):
+                        if chr != ' ':
+                            goto(Position(j + 1, i + 1))
+                            print(chr, end = '')
+                            sys.stdout.flush()
+                goto(cursor)
             else:
                 last_char = data
                 draw(cursor, color, buffer, data)
